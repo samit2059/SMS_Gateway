@@ -5,6 +5,7 @@ import morgan from "morgan";
 import authRoutes from "./modules/auth/auth.routes.js";
 import { smsRoutes } from "./modules/sms/sms.routes.js";
 import { routesHealthRouter } from "./modules/health/health.routes.js";
+import { walletRoutes } from "./modules/wallet/wallet.route.js";
 const app = express();
 // Middleware
 app.use(helmet());
@@ -23,6 +24,7 @@ app.get("/", (req, res) => {
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/sms", smsRoutes);
 app.use("/api/v1/health", routesHealthRouter);
+app.use("/api/v1/wallet", walletRoutes);
 app.get("/health", (_req, res) => {
     res.json({ status: "ok" });
 });
