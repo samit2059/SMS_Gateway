@@ -1,0 +1,121 @@
+// use prisma-8
+// Lines marked "CHANGED" differ from your original schema.
+
+// CHANGED: every documented enum declares a codec (@@type) and maps each member to a stored value.
+enum SmsEncoding {
+  @@type("pg/text@1")
+  GSM7    = "GSM7"
+  UNICODE = "UNICODE"
+}
+
+enum MessageDirection {
+  @@type("pg/text@1")
+  INCOMING = "INCOMING"
+  OUTGOING = "OUTGOING"
+}
+
+enum MessageStatus {
+  @@type("pg/text@1")
+  QUEUED  = "QUEUED"
+  SENDING = "SENDING" // CHANGED: new. Marks "a worker owns this message"; needed to claim safely and to detect crashes
+  SENT    = "SENT"
+  FAILED  = "FAILED"
+}
+
+enum AttemptStatus {
+  @@type("pg/text@1")
+  SUCCESS = "SUCCESS"
+  FAILED  = "FAILED"
+  SKIPPED = "SKIPPED"
+}
+
+// CHANGED: ids use uuid(7). cuid(2) is not in the Prisma 8 reference (documented generators: uuid(), uuid(7), nanoid(n)).
+// CHANGED: timestamps use TimestamptzJsDate so they come back as plain JS Dates (no Temporal polyfill needed).
+
+model User {
+  id           String             @id @onCreate(uuid(7))
+  name	       String
+  email        String             @unique
+  passwordHash String
+  
+  createdAt    TimestamptzJsDate  @default(now())
+
+  wallet   Wallet?
+  messages SmsMessage[]
+}
+
+model Wallet {
+  id        String            @id @onCreate(uuid(7))
+  userId    String            @unique
+  user      User              @relation(fields: [userId], references: [id])
+  balance   Int               @default(0)
+  updatedAt TimestamptzJsDate @onCreate(now()) @onUpdate(now())
+  // CHANGED: removed @@index([userId]); @unique already creates that index.
+}
+
+model Provider {
+  id          String  @id @onCreate(uuid(7))
+  code        String  @unique // ROUTE_A, ROUTE_B
+  name        String
+  priority    Int
+  balance     Int
+  failureRate Float
+  isActive    Boolean @default(true)
+
+  messages SmsMessage[]
+  attempts MessageAttempt[]
+}
+
+model SmsMessage {
+  id     String @id @onCreate(uuid(7))
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  direction           MessageDirection @default(OUTGOING)
+  sender              String
+  recipient           String
+  normalizedRecipient String
+
+  message        String
+  encoding       SmsEncoding
+  segments       Int
+  creditsCharged Int
+
+  status            MessageStatus @default(QUEUED)
+  providerId        String?
+  provider          Provider?     @relation(fields: [providerId], references: [id])
+  providerMessageId String?
+
+  errorMessage String?
+  refundIssued Boolean @default(false)
+
+  createdAt TimestamptzJsDate  @default(now())
+  updatedAt TimestamptzJsDate  @onCreate(now()) @onUpdate(now())
+  sentAt    TimestamptzJsDate?
+
+  attempts MessageAttempt[]
+
+  // CHANGED: composite indexes that match the real queries; fewer single-column indexes = cheaper writes.
+  @@index([userId, createdAt])     // "my messages, newest first"
+  @@index([status, createdAt])     // recovery sweep: find stuck QUEUED / SENDING rows
+  @@index([normalizedRecipient])
+  @@index([providerId])            // foreign key
+}
+
+model MessageAttempt {
+  id        String     @id @onCreate(uuid(7))
+  messageId String
+  message   SmsMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  providerId String
+  provider   Provider @relation(fields: [providerId], references: [id])
+
+  status       AttemptStatus
+  errorCode    String?
+  errorMessage String?
+
+  attemptedAt TimestamptzJsDate @default(now())
+
+  @@index([messageId])
+  @@index([providerId, attemptedAt])
+}

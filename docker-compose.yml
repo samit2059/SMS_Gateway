@@ -1,0 +1,26 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: smsgateway2-postgres-1
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: helloworld
+      POSTGRES_DB: sms_gateway_db
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d sms_gateway_db"]
+      interval: 5s
+      retries: 10
+
+  api:
+    build: .
+    container_name: smsgateway2-api-1
+    ports:
+      - "5000:5000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:helloworld@postgres:5432/sms_gateway_db?sslmode=disable
+      - PORT=5000
+    depends_on:
+      postgres:
+        condition: service_healthy

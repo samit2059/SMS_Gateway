@@ -1,32 +1,28 @@
-import express, { Request, Response } from 'express';
-import dotenv from 'dotenv';
-import cors from 'cors';
-import helmet from 'helmet';
-import morgan from 'morgan';
-import { timeStamp } from 'console';
-import { config } from './config/env';
+import "dotenv/config";
+import app from "./app.js";
+import prisma from "./lib/prisma.js";
 
-dotenv.config();  // Load environment variables
-
-const app = express();
-
-// Middleware
-app.use(helmet());
-app.use(cors());
-app.use(morgan('dev'));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// Health Check Route
-app.get('/', (req: Request, res: Response) => {
-  res.status(200).json({
-    status: 'success',
-    message: 'SMS Gateway Backend is up and running!',
-    timeStamp: new Date().toISOString(),
-});
+const PORT = process.env.PORT || 5000;
+const server = app.listen(PORT,()=>{
+  console.log(`Server is running on port ${PORT}`)
 });
 
-// Start Server
-app.listen(config.port, () => {
-  console.log(`[server]: Server is running at http://localhost:${config.port} ${config.nodeEnv}`);
-});
+// Optional: Handle graceful shutdowns for database connections
+const shutdown = async () => {
+  console.log("Shutting down server gracefully...");
+
+  server.close(async () => {
+    console.log("HTTP server closed.");
+    try {
+      await prisma.close();
+      console.log("Database connection closed.");
+      process.exit(0);
+    } catch (err) {
+      console.error("Error during database disconnection:", err);
+      process.exit(1);
+    }
+  });
+};
+
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);
