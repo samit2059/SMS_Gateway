@@ -1,4 +1,5 @@
 import { HttpError } from "./sms.errors.js";
+import { analyzeMessage } from "./sms.encoding.js";
 export function normalizeNumber(raw) {
     if (typeof raw !== "string" || raw.trim() === "") {
         return { ok: false, reason: "must be a non-empty string" };
@@ -7,23 +8,16 @@ export function normalizeNumber(raw) {
     if (!/^\+?[\d\s\-().]+$/.test(trimmed)) {
         return { ok: false, reason: "contains invalid characters (only digits, spaces, - ( ) . and a leading + are allowed)" };
     }
-    let digits = trimmed.replace(/[\s\-().]/g, "");
-    let localNumber = digits;
+    const compact = trimmed.replace(/[\s\-().]/g, "");
+    let localNumber = compact;
     if (localNumber.startsWith("+977")) {
         localNumber = localNumber.slice(4);
     }
-    else if (localNumber.startsWith("977") && localNumber.length === 12) {
+    else if (localNumber.startsWith("977") && localNumber.length === 13) {
         localNumber = localNumber.slice(3);
     }
-    else if (localNumber.startsWith("00977")) {
-        localNumber = localNumber.slice(5);
-    }
-    if (!/^\+[1-9]\d{7,14}$/.test(localNumber)) {
-        return { ok: false, reason: "not a valid international number (expected 8-15 digits including country code)" };
-    }
-    // Country rule for Nepal: mobile numbers are 10 digits starting with 9.
-    if (localNumber.startsWith("+977") && !/^\+9779\d{9}$/.test(localNumber)) {
-        return { ok: false, reason: "Nepal mobile numbers must be 10 digits starting with 9" };
+    if (!/^(97|98)\d{8}$/.test(localNumber)) {
+        return { ok: false, reason: "must be a 10-digit Nepali mobile number beginning with 97 or 98" };
     }
     return { ok: true, value: localNumber };
 }
@@ -141,39 +135,6 @@ export function parseLogsQuery(query) {
         ...(number ? { number } : {}),
     };
 }
-const GSM7_BASIC_SET = new Set([
-    '@', '£', '$', '¥', 'è', 'é', 'ù', 'ì', 'ò', 'Ç', '\n', 'Ø', 'ø', '\r', 'Å', 'å',
-    'Δ', '_', 'Φ', 'Γ', 'Λ', 'Ω', 'Π', 'Ψ', 'Σ', 'Θ', 'Ξ', 'Æ', 'æ', 'ß', 'É',
-    ' ', '!', '"', '#', '¤', '%', '&', "'", '(', ')', '*', '+', ',', '-', '.', '/',
-    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ':', ';', '<', '=', '>', '?',
-    '¡', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O',
-    'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'Ä', 'Ö', 'Ñ', 'Ü', '§',
-    '¿', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o',
-    'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', 'ä', 'ö', 'ñ', 'ü', 'à'
-]);
-const GSM7_EXTENSION_SET = new Set([
-    '\f', '^', '{', '}', '\\', '[', ']', '~', '|', '€'
-]);
-/**
- * Returns the number of GSM-7 septets required for `message`, or undefined
- * when any character must be sent as Unicode. Extension-table characters are
- * encoded with an escape character and therefore consume two septets.
- */
-function gsm7SeptetCount(message) {
-    let septets = 0;
-    for (const character of message) {
-        if (GSM7_BASIC_SET.has(character)) {
-            septets += 1;
-        }
-        else if (GSM7_EXTENSION_SET.has(character)) {
-            septets += 2;
-        }
-        else {
-            return undefined;
-        }
-    }
-    return septets;
-}
 export function validateSendInput(body) {
     const result = validateSendRequest(body);
     if (!result.ok) {
@@ -191,12 +152,7 @@ export function validateSendInput(body) {
         seen.add(normalized);
         recipients.push({ input: normalized, normalized });
     }
-    const gsm7Septets = gsm7SeptetCount(result.data.message);
-    const encoding = gsm7Septets === undefined ? "UNICODE" : "GSM7";
-    const units = gsm7Septets ?? result.data.message.length;
-    const singlePartLimit = encoding === "GSM7" ? 160 : 70;
-    const multipartLimit = encoding === "GSM7" ? 153 : 67;
-    const segments = units <= singlePartLimit ? 1 : Math.ceil(units / multipartLimit);
+    const { encoding, segments } = analyzeMessage(result.data.message);
     return {
         recipients,
         message: result.data.message,

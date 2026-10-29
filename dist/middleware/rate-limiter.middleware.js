@@ -4,6 +4,10 @@ export const globalRateLimiter = rateLimit({
     limit: 60,
     standardHeaders: "draft-7",
     legacyHeaders: false,
+    // Key by authenticated user ID if logged in, otherwise fall back to IP address
+    keyGenerator: (req) => {
+        return req.user?.userId || req.user?.id || req.ip || "anonymous";
+    },
     message: {
         status: 429,
         message: "You have exceeded your request limit. Please try again later.",
@@ -11,10 +15,13 @@ export const globalRateLimiter = rateLimit({
     },
 });
 export const authRateLimiter = rateLimit({
-    windowMs: 60 * 1000,
+    windowMs: 15 * 60 * 1000,
     limit: 10,
     standardHeaders: "draft-7",
     legacyHeaders: false,
+    keyGenerator: (req) => {
+        return req.ip || "anonymous";
+    },
     message: {
         status: 429,
         message: "You have exceeded your request limit. Please try again later.",

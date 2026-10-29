@@ -15,7 +15,7 @@ console.log("wallet before:", before);
 const responses = await Promise.all(Array.from({ length: N }, (_, i) => fetch(`${BASE}/sms/send`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ to: ["+9779800000000"], message: `parallel test ${i}` }),
+    body: JSON.stringify({ to: ["+9779873830827"], message: `parallel test ${i}` }),
 })));
 const tally = {};
 for (const r of responses)

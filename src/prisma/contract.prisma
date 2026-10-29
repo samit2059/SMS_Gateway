@@ -24,8 +24,11 @@ enum MessageStatus {
 
 enum AttemptStatus {
   @@type("pg/text@1")
+  RESERVED
+  SENDING
   SUCCESS = "SUCCESS"
   FAILED  = "FAILED"
+  RELEASED
   SKIPPED = "SKIPPED"
 }
 
