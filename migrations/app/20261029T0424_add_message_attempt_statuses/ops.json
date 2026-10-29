@@ -1,0 +1,99 @@
+[
+  {
+    "id": "dropCheckConstraint.MessageAttempt.MessageAttempt_status_check_006242cc",
+    "label": "Drop check constraint \"MessageAttempt_status_check_006242cc\" on \"MessageAttempt\"",
+    "operationClass": "widening",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "checkConstraint",
+        "name": "MessageAttempt_status_check_006242cc",
+        "table": "MessageAttempt"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"MessageAttempt_status_check_006242cc\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "MessageAttempt_status_check_006242cc",
+          "public",
+          "\"public\".\"MessageAttempt\""
+        ],
+        "expectation": {
+          "expects": "present",
+          "object": "constraint \"MessageAttempt_status_check_006242cc\" on \"MessageAttempt\""
+        }
+      }
+    ],
+    "execute": [
+      {
+        "description": "drop check constraint \"MessageAttempt_status_check_006242cc\"",
+        "sql": "ALTER TABLE \"public\".\"MessageAttempt\" DROP CONSTRAINT \"MessageAttempt_status_check_006242cc\""
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"MessageAttempt_status_check_006242cc\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "MessageAttempt_status_check_006242cc",
+          "public",
+          "\"public\".\"MessageAttempt\""
+        ],
+        "expectation": {
+          "expects": "absent",
+          "object": "constraint \"MessageAttempt_status_check_006242cc\" on \"MessageAttempt\""
+        }
+      }
+    ]
+  },
+  {
+    "id": "checkConstraint.MessageAttempt.MessageAttempt_status_check_fae7fbf7",
+    "label": "Add check constraint \"MessageAttempt_status_check_fae7fbf7\" on \"MessageAttempt\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "checkConstraint",
+        "name": "MessageAttempt_status_check_fae7fbf7",
+        "table": "MessageAttempt"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"MessageAttempt_status_check_fae7fbf7\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "MessageAttempt_status_check_fae7fbf7",
+          "public",
+          "\"public\".\"MessageAttempt\""
+        ],
+        "expectation": {
+          "expects": "absent",
+          "object": "constraint \"MessageAttempt_status_check_fae7fbf7\" on \"MessageAttempt\""
+        }
+      }
+    ],
+    "execute": [
+      {
+        "description": "add check constraint \"MessageAttempt_status_check_fae7fbf7\"",
+        "sql": "ALTER TABLE \"public\".\"MessageAttempt\" ADD CONSTRAINT \"MessageAttempt_status_check_fae7fbf7\" CHECK (\"status\" IN ('RESERVED', 'SENDING', 'SUCCESS', 'FAILED', 'RELEASED', 'SKIPPED'))"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify check constraint \"MessageAttempt_status_check_fae7fbf7\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3) AND \"c\".\"contype\" = $4)) AS \"result\"",
+        "params": [
+          "MessageAttempt_status_check_fae7fbf7",
+          "public",
+          "\"public\".\"MessageAttempt\"",
+          "c"
+        ]
+      }
+    ]
+  }
+]

@@ -1,23 +1,23 @@
-import { rateLimit } from "express-rate-limit";
-import { AppError } from "../common/utils/appError.js";
-import type {Request} from "express";
-
-interface AuthenticatedRequest extends Request {
-  user?: {
-    userId?: string;
-    id?: string;
-    [key: string]: any;
-  };
-}
+import { rateLimit, ipKeyGenerator } from "express-rate-limit";
+import type { Request } from "express";
 
 export const globalRateLimiter = rateLimit({
   windowMs: 60 * 1000,
   limit: 60,
   standardHeaders: "draft-7",
   legacyHeaders: false,
-// Key by authenticated user ID if logged in, otherwise fall back to IP address
-  keyGenerator: (req: AuthenticatedRequest) => {
-    return req.user?.userId || req.user?.id || req.ip || "anonymous";
+  // Use standard Request and Response types here
+  keyGenerator: (req: Request): string => {
+    // Type-safely check for user properties if they exist on the request object
+    const user = (req as any).user;
+    const userId = user?.userId || user?.id;
+
+    if (userId) {
+      return userId;
+    }
+
+    // Fall back to the safe IPv6 IP generator helper
+    return ipKeyGenerator(req.ip ?? "unknown");
   },
   message: {
     status: 429,
@@ -31,8 +31,8 @@ export const authRateLimiter = rateLimit({
   limit: 10,
   standardHeaders: "draft-7",
   legacyHeaders: false,
-  keyGenerator: (req: Request) => {
-    return req.ip || "anonymous";
+  keyGenerator: (req: Request): string => {
+    return ipKeyGenerator(req.ip ?? "unknown");
   },
   message: {
     status: 429,

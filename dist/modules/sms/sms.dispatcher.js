@@ -35,28 +35,6 @@ export class MockProvider {
         const row = await prisma.orm.public.Provider.where({ id: this.id }).first();
         return row?.balance ?? 0;
     }
-    /**
-     * Atomically take `parts` from the balance BEFORE sending, so parallel sends can't overspend the route.
-     * Returns false when the route is inactive or can't cover it.
-     * (forNoKeyUpdate, not forUpdate: attempts/messages reference this row; see Prisma 8 pitfall 13.)
-     */
-    async reserve(parts) {
-        return prisma.transaction(async (tx) => {
-            const p = await tx.orm.public.Provider.where({ id: this.id }).forNoKeyUpdate().first();
-            if (!p || !p.isActive || p.balance < parts)
-                return false;
-            await tx.orm.public.Provider.where({ id: this.id }).update({ balance: p.balance - parts });
-            return true;
-        });
-    }
-    /** Give a reservation back (the send failed). */
-    async release(parts) {
-        await prisma.transaction(async (tx) => {
-            const p = await tx.orm.public.Provider.where({ id: this.id }).forNoKeyUpdate().first();
-            if (p)
-                await tx.orm.public.Provider.where({ id: this.id }).update({ balance: p.balance + parts });
-        });
-    }
     /** Pretend to send. Throws ProviderError `failureRate` of the time. */
     async send(_msg) {
         await sleep(50 + Math.random() * 150); // fake network latency
@@ -83,14 +61,82 @@ export async function loadAllProviders() {
 }
 const RECOVERY_BATCH_SIZE = 100;
 export const STALE_SENDING_AFTER_MS = Number(process.env.SMS_SENDING_TIMEOUT_MS ?? 5 * 60_000);
-async function recordAttempt(messageId, providerId, status, errorMessage) {
+async function recordSkippedAttempt(messageId, providerId, errorMessage) {
     await prisma.orm.public.MessageAttempt.create({
         messageId,
         providerId,
-        status,
+        status: "SKIPPED",
         errorMessage,
-        errorCode: errorMessage ? "PROVIDER_REJECTED" : null,
+        errorCode: "INSUFFICIENT_PROVIDER_CREDITS",
     });
+}
+/** Atomically deduct route credits and persist the reservation before any provider I/O. */
+async function reserveForMessage(messageId, provider, parts) {
+    return prisma.transaction(async (tx) => {
+        const message = await tx.orm.public.SmsMessage.where({ id: messageId }).forUpdate().first();
+        if (!message || message.status !== "SENDING")
+            return undefined;
+        const route = await tx.orm.public.Provider.where({ id: provider.id }).forNoKeyUpdate().first();
+        if (!route || !route.isActive || route.balance < parts)
+            return undefined;
+        await tx.orm.public.Provider.where({ id: route.id }).update({ balance: route.balance - parts });
+        await tx.orm.public.SmsMessage.where({ id: message.id }).update({ providerId: route.id });
+        const attempt = await tx.orm.public.MessageAttempt.create({
+            messageId: message.id,
+            providerId: route.id,
+            status: "RESERVED",
+            errorCode: null,
+            errorMessage: null,
+        });
+        return attempt.id;
+    });
+}
+async function beginProviderSend(attemptId) {
+    await prisma.orm.public.MessageAttempt.where({ id: attemptId }).update({ status: "SENDING" });
+}
+/** Release a reservation once; safe for normal provider rejections and recovery. */
+async function releaseReservation(attemptId, parts, errorMessage) {
+    await prisma.transaction(async (tx) => {
+        const attempt = await tx.orm.public.MessageAttempt.where({ id: attemptId }).forUpdate().first();
+        if (!attempt || attempt.status === "SUCCESS" || attempt.status === "RELEASED")
+            return;
+        const route = await tx.orm.public.Provider.where({ id: attempt.providerId }).forNoKeyUpdate().first();
+        if (route)
+            await tx.orm.public.Provider.where({ id: route.id }).update({ balance: route.balance + parts });
+        await tx.orm.public.MessageAttempt.where({ id: attempt.id }).update({
+            status: "RELEASED",
+            errorCode: "PROVIDER_REJECTED",
+            errorMessage,
+        });
+    });
+}
+async function markSent(messageId, attemptId, providerMessageId) {
+    return prisma.transaction(async (tx) => {
+        const current = await tx.orm.public.SmsMessage.where({ id: messageId }).forUpdate().first();
+        const attempt = await tx.orm.public.MessageAttempt.where({ id: attemptId }).forUpdate().first();
+        if (!current || !attempt || current.status !== "SENDING" || attempt.status !== "SENDING")
+            return false;
+        await tx.orm.public.SmsMessage.where({ id: current.id }).update({
+            status: "SENT",
+            providerId: attempt.providerId,
+            providerMessageId,
+            sentAt: new Date(),
+            errorMessage: null,
+        });
+        await tx.orm.public.MessageAttempt.where({ id: attempt.id }).update({
+            status: "SUCCESS",
+            errorCode: null,
+            errorMessage: null,
+        });
+        return true;
+    });
+}
+/** A RESERVED attempt has not entered provider I/O and can safely be returned during recovery. */
+async function releaseUnstartedReservations(messageId, parts) {
+    const attempts = await prisma.orm.public.MessageAttempt
+        .where((attempt) => and(attempt.messageId.eq(messageId), attempt.status.eq("RESERVED")))
+        .all();
+    await Promise.all(attempts.map((attempt) => releaseReservation(attempt.id, parts, "Reservation released during crash recovery before provider send")));
 }
 /**
  * Terminal failure and its customer refund are one idempotent transaction.
@@ -130,49 +176,43 @@ async function dispatch(messageId) {
     const providers = await loadActiveProviders();
     let lastError = "No active provider could send this message";
     for (const provider of providers) {
-        if (!(await provider.reserve(message.segments))) {
-            await recordAttempt(message.id, provider.id, "SKIPPED", "Provider has insufficient credits");
+        const attemptId = await reserveForMessage(message.id, provider, message.segments);
+        if (!attemptId) {
+            await recordSkippedAttempt(message.id, provider.id, "Provider has insufficient credits");
             continue;
         }
+        // A failure to persist this transition is not a provider failure. The durable
+        // RESERVED attempt is recovered later; do not try another route.
         try {
-            const sent = await provider.send({
+            await beginProviderSend(attemptId);
+        }
+        catch (error) {
+            console.error("Could not persist provider send state", error);
+            return undefined;
+        }
+        let sent;
+        try {
+            sent = await provider.send({
                 to: message.normalizedRecipient,
                 message: message.message,
                 sender: message.sender,
             });
-            const markedSent = await prisma.transaction(async (tx) => {
-                // A recovery worker may have finalized a stale message while the
-                // provider call was in flight. Never overwrite that terminal state.
-                const current = await tx.orm.public.SmsMessage.where({ id: message.id }).forUpdate().first();
-                if (!current || current.status !== "SENDING")
-                    return false;
-                await tx.orm.public.SmsMessage.where({ id: message.id }).update({
-                    status: "SENT",
-                    providerId: provider.id,
-                    providerMessageId: sent.providerMessageId,
-                    sentAt: new Date(),
-                    errorMessage: null,
-                });
-                await tx.orm.public.MessageAttempt.create({
-                    messageId: message.id,
-                    providerId: provider.id,
-                    status: "SUCCESS",
-                    errorCode: null,
-                    errorMessage: null,
-                });
-                return true;
-            });
-            if (markedSent)
-                return "SENT";
-            // The provider may have accepted the message, but recovery finalized it
-            // first. Do not retry or release its reservation: either could create a
-            // duplicate send or an incorrect provider balance.
-            return undefined;
         }
         catch (error) {
             lastError = error instanceof Error ? error.message : "Provider failed to send the message";
-            await provider.release(message.segments);
-            await recordAttempt(message.id, provider.id, "FAILED", lastError);
+            await releaseReservation(attemptId, message.segments, lastError);
+            continue;
+        }
+        // The provider has accepted the message. A database failure here is delivery
+        // ambiguous, never a reason to release the reservation or fail over.
+        try {
+            if (await markSent(message.id, attemptId, sent.providerMessageId))
+                return "SENT";
+            return undefined;
+        }
+        catch (error) {
+            console.error("Provider accepted SMS but success could not be persisted", error);
+            return undefined;
         }
     }
     return failAndRefund(message.id, lastError);
@@ -182,10 +222,10 @@ async function dispatch(messageId) {
  *
  * QUEUED messages have never been handed to a provider, so they are safe to
  * re-enqueue. A stale SENDING message is delivery-ambiguous: a real provider
- * may have accepted it just before the crash. We therefore never resend it;
- * we fail/refund it exactly once and leave a clear audit message. A production
- * provider integration can replace that policy with a provider status lookup
- * keyed by its idempotency key/message id.
+ * may have accepted it just before the crash. We therefore never resend it.
+ * A durable RESERVED attempt is safe to release because provider I/O did not
+ * begin; a SENDING attempt is delivery-ambiguous, so its provider reservation
+ * remains consumed until a real provider status lookup can reconcile it.
  */
 async function recover() {
     const cutoff = new Date(Date.now() - STALE_SENDING_AFTER_MS);
@@ -202,7 +242,10 @@ async function recover() {
     ]);
     await Promise.all([
         ...queued.map((message) => dispatch(message.id)),
-        ...staleSending.map((message) => failAndRefund(message.id, "Delivery outcome is unknown after an interrupted send; credits refunded")),
+        ...staleSending.map(async (message) => {
+            await releaseUnstartedReservations(message.id, message.segments);
+            return failAndRefund(message.id, "Delivery outcome is unknown after an interrupted send; credits refunded");
+        }),
         ...failedWithoutRefund.map((message) => failAndRefund(message.id, message.errorMessage ?? "Message failed; credits refunded")),
     ]);
 }
