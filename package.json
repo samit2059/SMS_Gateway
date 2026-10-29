@@ -10,7 +10,7 @@
     "test": "npm run build && node --test dist/modules/sms/sms.validation.test.js",
     "start": "node dist/server.js",
     "start:win": "cross-env NODE_ENV=production node dist/server.js",
-    "postinstall": "prisma generate || exit 0"
+    "postinstall": "prisma contract emit"
   },
   "dependencies": {
     "@js-temporal/polyfill": "^0.5.1",
