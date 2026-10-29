@@ -72,7 +72,7 @@ async function recordSkippedAttempt(messageId: string, providerId: string, error
   await prisma.orm.public.MessageAttempt.create({
     messageId,
     providerId,
-    status,
+    status: "SKIPPED",
     errorMessage,
     errorCode: "INSUFFICIENT_PROVIDER_CREDITS",
   });

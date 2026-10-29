@@ -33,12 +33,24 @@
             "codecId": "pg/text@1",
             "members": [
               {
+                "name": "RESERVED",
+                "value": "RESERVED"
+              },
+              {
+                "name": "SENDING",
+                "value": "SENDING"
+              },
+              {
                 "name": "SUCCESS",
                 "value": "SUCCESS"
               },
               {
                 "name": "FAILED",
                 "value": "FAILED"
+              },
+              {
+                "name": "RELEASED",
+                "value": "RELEASED"
               },
               {
                 "name": "SKIPPED",
@@ -757,8 +769,8 @@
             "MessageAttempt": {
               "checks": [
                 {
-                  "expression": "\"status\" IN ('SUCCESS', 'FAILED', 'SKIPPED')",
-                  "name": "MessageAttempt_status_check_006242cc",
+                  "expression": "\"status\" IN ('RESERVED', 'SENDING', 'SUCCESS', 'FAILED', 'RELEASED', 'SKIPPED')",
+                  "name": "MessageAttempt_status_check_fae7fbf7",
                   "prefix": "MessageAttempt_status_check"
                 }
               ],
@@ -1292,8 +1304,11 @@
             "AttemptStatus": {
               "kind": "valueSet",
               "values": [
+                "RESERVED",
+                "SENDING",
                 "SUCCESS",
                 "FAILED",
+                "RELEASED",
                 "SKIPPED"
               ]
             },
@@ -1326,7 +1341,7 @@
         "kind": "postgres-schema"
       }
     },
-    "storageHash": "006cb4024dd2ca4c54661630ec98847f488fb62a6bb1b75ff07515870ca03564"
+    "storageHash": "4b1f29327e1f174fe07349512f7f2d4fbc4fb182793399276d7d2193e0c32539"
   },
   "execution": {
     "executionHash": "d7ff4087de95eb6eab96f35fc7a73378247272afc7aed012dd52884477b7fcd9",

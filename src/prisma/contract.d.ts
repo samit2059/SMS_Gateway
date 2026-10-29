@@ -23,7 +23,7 @@ import type {
 } from '@prisma/orm-postgres/contract/types';
 
 export type StorageHash =
-  StorageHashBase<'006cb4024dd2ca4c54661630ec98847f488fb62a6bb1b75ff07515870ca03564'>;
+  StorageHashBase<'4b1f29327e1f174fe07349512f7f2d4fbc4fb182793399276d7d2193e0c32539'>;
 export type ExecutionHash =
   ExecutionHashBase<'d7ff4087de95eb6eab96f35fc7a73378247272afc7aed012dd52884477b7fcd9'>;
 export type ProfileHash =
@@ -243,8 +243,8 @@ type FieldTypeOverrides = {
     readonly models: {
       readonly MessageAttempt: {
         readonly status: {
-          readonly output: 'SUCCESS' | 'FAILED' | 'SKIPPED';
-          readonly input: 'SUCCESS' | 'FAILED' | 'SKIPPED';
+          readonly output: 'RESERVED' | 'SENDING' | 'SUCCESS' | 'FAILED' | 'RELEASED' | 'SKIPPED';
+          readonly input: 'RESERVED' | 'SENDING' | 'SUCCESS' | 'FAILED' | 'RELEASED' | 'SKIPPED';
         };
       };
       readonly SmsMessage: {
@@ -282,8 +282,8 @@ type ColumnTypeOverrides = {
   readonly public: {
     readonly MessageAttempt: {
       readonly status: {
-        readonly output: 'SUCCESS' | 'FAILED' | 'SKIPPED';
-        readonly input: 'SUCCESS' | 'FAILED' | 'SKIPPED';
+        readonly output: 'RESERVED' | 'SENDING' | 'SUCCESS' | 'FAILED' | 'RELEASED' | 'SKIPPED';
+        readonly input: 'RESERVED' | 'SENDING' | 'SUCCESS' | 'FAILED' | 'RELEASED' | 'SKIPPED';
       };
     };
     readonly SmsMessage: {
@@ -840,7 +840,14 @@ type ContractBase = Omit<
           readonly valueSet: {
             readonly AttemptStatus: {
               readonly kind: 'valueSet';
-              readonly values: readonly ['SUCCESS', 'FAILED', 'SKIPPED'];
+              readonly values: readonly [
+                'RESERVED',
+                'SENDING',
+                'SUCCESS',
+                'FAILED',
+                'RELEASED',
+                'SKIPPED',
+              ];
             };
             readonly MessageDirection: {
               readonly kind: 'valueSet';
@@ -1279,8 +1286,11 @@ type ContractBase = Omit<
           readonly AttemptStatus: {
             readonly codecId: 'pg/text@1';
             readonly members: readonly [
+              { readonly name: 'RESERVED'; readonly value: 'RESERVED' },
+              { readonly name: 'SENDING'; readonly value: 'SENDING' },
               { readonly name: 'SUCCESS'; readonly value: 'SUCCESS' },
               { readonly name: 'FAILED'; readonly value: 'FAILED' },
+              { readonly name: 'RELEASED'; readonly value: 'RELEASED' },
               { readonly name: 'SKIPPED'; readonly value: 'SKIPPED' },
             ];
           };
@@ -1310,8 +1320,11 @@ type ContractBase = Omit<
         };
         readonly enumMemberTypes?: {
           readonly AttemptStatus: readonly [
+            { readonly name: 'RESERVED'; readonly value: 'RESERVED' },
+            { readonly name: 'SENDING'; readonly value: 'SENDING' },
             { readonly name: 'SUCCESS'; readonly value: 'SUCCESS' },
             { readonly name: 'FAILED'; readonly value: 'FAILED' },
+            { readonly name: 'RELEASED'; readonly value: 'RELEASED' },
             { readonly name: 'SKIPPED'; readonly value: 'SKIPPED' },
           ];
           readonly MessageDirection: readonly [
