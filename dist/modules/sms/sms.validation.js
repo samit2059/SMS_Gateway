@@ -1,6 +1,4 @@
-// Number validation + normalisation to E.164 (+<country><number>).
 import { HttpError } from "./sms.errors.js";
-const DEFAULT_COUNTRY_CODE = (process.env.DEFAULT_COUNTRY_CODE ?? "977").replace(/\D/g, "");
 export function normalizeNumber(raw) {
     if (typeof raw !== "string" || raw.trim() === "") {
         return { ok: false, reason: "must be a non-empty string" };
@@ -10,26 +8,24 @@ export function normalizeNumber(raw) {
         return { ok: false, reason: "contains invalid characters (only digits, spaces, - ( ) . and a leading + are allowed)" };
     }
     let digits = trimmed.replace(/[\s\-().]/g, "");
-    let e164;
-    if (digits.startsWith("+")) {
-        e164 = digits;
+    let localNumber = digits;
+    if (localNumber.startsWith("+977")) {
+        localNumber = localNumber.slice(4);
     }
-    else if (digits.startsWith("00")) {
-        e164 = "+" + digits.slice(2);
+    else if (localNumber.startsWith("977") && localNumber.length === 12) {
+        localNumber = localNumber.slice(3);
     }
-    else {
-        // local format: 98XXXXXXXX or 098XXXXXXXX
-        digits = digits.replace(/^0/, "");
-        e164 = `+${DEFAULT_COUNTRY_CODE}${digits}`;
+    else if (localNumber.startsWith("00977")) {
+        localNumber = localNumber.slice(5);
     }
-    if (!/^\+[1-9]\d{7,14}$/.test(e164)) {
+    if (!/^\+[1-9]\d{7,14}$/.test(localNumber)) {
         return { ok: false, reason: "not a valid international number (expected 8-15 digits including country code)" };
     }
     // Country rule for Nepal: mobile numbers are 10 digits starting with 9.
-    if (e164.startsWith("+977") && !/^\+9779\d{9}$/.test(e164)) {
+    if (localNumber.startsWith("+977") && !/^\+9779\d{9}$/.test(localNumber)) {
         return { ok: false, reason: "Nepal mobile numbers must be 10 digits starting with 9" };
     }
-    return { ok: true, value: e164 };
+    return { ok: true, value: localNumber };
 }
 export function validateSendRequest(body) {
     if (!body || typeof body !== "object") {
@@ -145,11 +141,43 @@ export function parseLogsQuery(query) {
         ...(number ? { number } : {}),
     };
 }
-const GSM7_BASIC = /^[\x00-\x7F£¥èéùìòÇØøÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ¤¡ÄÖÑÜ§¿äöñüà]*$/;
+const GSM7_BASIC_SET = new Set([
+    '@', '£', '$', '¥', 'è', 'é', 'ù', 'ì', 'ò', 'Ç', '\n', 'Ø', 'ø', '\r', 'Å', 'å',
+    'Δ', '_', 'Φ', 'Γ', 'Λ', 'Ω', 'Π', 'Ψ', 'Σ', 'Θ', 'Ξ', 'Æ', 'æ', 'ß', 'É',
+    ' ', '!', '"', '#', '¤', '%', '&', "'", '(', ')', '*', '+', ',', '-', '.', '/',
+    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ':', ';', '<', '=', '>', '?',
+    '¡', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O',
+    'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'Ä', 'Ö', 'Ñ', 'Ü', '§',
+    '¿', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o',
+    'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', 'ä', 'ö', 'ñ', 'ü', 'à'
+]);
+const GSM7_EXTENSION_SET = new Set([
+    '\f', '^', '{', '}', '\\', '[', ']', '~', '|', '€'
+]);
+/**
+ * Returns the number of GSM-7 septets required for `message`, or undefined
+ * when any character must be sent as Unicode. Extension-table characters are
+ * encoded with an escape character and therefore consume two septets.
+ */
+function gsm7SeptetCount(message) {
+    let septets = 0;
+    for (const character of message) {
+        if (GSM7_BASIC_SET.has(character)) {
+            septets += 1;
+        }
+        else if (GSM7_EXTENSION_SET.has(character)) {
+            septets += 2;
+        }
+        else {
+            return undefined;
+        }
+    }
+    return septets;
+}
 export function validateSendInput(body) {
     const result = validateSendRequest(body);
     if (!result.ok) {
-        throw new Error(Object.values(result.errors).join(", "));
+        throw new HttpError(400, Object.values(result.errors).join(", "));
     }
     const recipients = [];
     const seen = new Set();
@@ -163,12 +191,12 @@ export function validateSendInput(body) {
         seen.add(normalized);
         recipients.push({ input: normalized, normalized });
     }
-    const encoding = GSM7_BASIC.test(result.data.message) ? "GSM7" : "UNICODE";
+    const gsm7Septets = gsm7SeptetCount(result.data.message);
+    const encoding = gsm7Septets === undefined ? "UNICODE" : "GSM7";
+    const units = gsm7Septets ?? result.data.message.length;
     const singlePartLimit = encoding === "GSM7" ? 160 : 70;
     const multipartLimit = encoding === "GSM7" ? 153 : 67;
-    const segments = result.data.message.length <= singlePartLimit
-        ? 1
-        : Math.ceil(result.data.message.length / multipartLimit);
+    const segments = units <= singlePartLimit ? 1 : Math.ceil(units / multipartLimit);
     return {
         recipients,
         message: result.data.message,

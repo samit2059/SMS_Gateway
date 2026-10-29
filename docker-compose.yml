@@ -4,7 +4,7 @@ services:
     container_name: smsgateway2-postgres-1
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: helloworld
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
       POSTGRES_DB: sms_gateway_db
     ports:
       - "5432:5432"
@@ -19,7 +19,7 @@ services:
     ports:
       - "5000:5000"
     environment:
-      - DATABASE_URL=postgresql://postgres:helloworld@postgres:5432/sms_gateway_db?sslmode=disable
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}@postgres:5432/sms_gateway_db?sslmode=disable
       - PORT=5000
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set in .env}
       - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-1d}

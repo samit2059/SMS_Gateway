@@ -16,8 +16,7 @@ async function main() {
         update: { 
             name: r.name,
             priority: r.priority, 
-            failureRate: r.failureRate, 
-            balance: r.balance 
+            failureRate: r.failureRate
         },
         create: r,
     });
