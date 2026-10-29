@@ -379,31 +379,6 @@ docker-entrypoint.sh    Migration, seed, and startup sequence
 - Failed final deliveries are refunded.
 - The health score uses both recent delivery results and route balance.
 
-### What I would improve next
-
-- Move delivery to BullMQ/Redis so requests return immediately and queued
-  messages survive API process restarts.
-- Add a delivery-report webhook for provider callbacks.
-- Add a recovery worker for queued or in-progress messages.
-- Add integration tests for the database transaction, failover, refunds, and
-  the 20-request concurrency scenario.
-- Add API documentation generation and a short demo recording/deployed link.
-- Restrict CORS and add production secret management before deployment.
-
-## Submission checklist
-
-- [x] Source code, schema, migrations, and provider seed data
-- [x] README setup steps and design decisions
-- [x] Phone-number normalization and clear validation errors
-- [x] GSM-7 and Unicode part counting
-- [x] Transactional wallet deduction
-- [x] Priority-based provider failover
-- [x] Refunds after all routes fail
-- [x] Paginated logs filtered by status, date, and number
-- [x] Explained route-health formula
-- [x] Rate limiting, unit tests, and Docker Compose bonus items
-- [ ] 3–5 minute demo recording or deployed link (provide separately)
-
 ## License
 
 No license is currently declared in the repository.
